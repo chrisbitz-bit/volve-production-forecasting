@@ -1,88 +1,96 @@
-# Volve Production Forecasting: Physics vs Machine Learning
+# Volve Production Forecasting: Decline Curve Analysis vs Machine Learning
 
-Probabilistic oil production forecasting (P10/P50/P90) on Equinor's open **Volve** field data, North Sea, 2008 to 2016.
+Probabilistic oil rate forecasting (P10/P50/P90) using Equinor's public **Volve** field dataset (Norwegian North Sea, production 2008 to 2016).
 
-The project asks two questions:
+This study addresses two questions:
 
-1. **Can machine learning beat classic Arps decline curve analysis at forecasting a year of oil production?**
-2. **If not, where does ML actually add value for a production team?**
+1. **Can machine learning models outperform Arps decline curve analysis (DCA) for 12-month oil rate forecasting?**
+2. **Where does machine learning provide measurable value in production engineering workflows?**
 
-Every model is tested the same strict way: it only sees data from before its forecast date, and it is scored on what happened next.
+All models are evaluated under an identical out-of-sample protocol: each forecast uses only data available before its forecast origin and is scored against subsequently observed production.
 
 ![Test-year forecasts for wells F-11 and F-12](figures/02_where_ml_failed_F11_F12.png)
 
-## Part 1: Year-ahead forecasting
+## Data
 
-Three methods, each producing a P10/P50/P90 range:
+- Source: Equinor Volve daily production data, 15,634 daily well records (Sep 2007 to Dec 2016).
+- Scope: 5 oil producers (15/9-F-1 C, F-11, F-12, F-14, F-15 D); 2 water injectors (F-4, F-5) used as pressure-support inputs in Part 2.
+- Preprocessing: daily records aggregated to weekly averages; oil rate normalized by on-stream hours; weeks with fewer than 48 producing hours excluded from the target; rate step-changes (restarts, workovers) detected automatically and encoded as features.
 
-| Method | What it is |
+## Part 1: 12-month rate forecasting
+
+Three methods, each producing P10/P50/P90 quantiles:
+
+| Method | Description |
 | --- | --- |
-| Arps decline | Hyperbolic decline curve (Arps, 1945), bootstrap uncertainty |
-| Gradient boosting | Quantile `HistGradientBoostingRegressor` on lagged rates, water cut, choke, wellhead pressure |
-| Temporal Fusion Transformer | Built in PyTorch: gated residual networks, variable selection, attention, quantile loss |
+| Arps decline curve analysis | Hyperbolic decline fitted in log space from the most recent peak or detected restart; bootstrap resampling for uncertainty |
+| Quantile gradient boosting | `HistGradientBoostingRegressor` with quantile loss; inputs: lagged log-rates, water cut and its trend, choke opening, wellhead pressure, time on stream, time since last restart, forecast horizon |
+| Temporal Fusion Transformer (TFT) | Implemented in PyTorch: variable selection networks, gated residual networks, LSTM encoder–decoder, interpretable multi-head attention, quantile loss; 3-seed ensemble |
 
-Prediction bands are calibrated on a practice year (Oct 2014 to Sep 2015) with conformal adjustment, then scored on the test year (Oct 2015 to Sep 2016).
+Prediction intervals were calibrated by split-conformal adjustment on a validation year (Oct 2014 to Sep 2015) and evaluated on a held-out test year (Oct 2015 to Sep 2016).
 
-**Test year results (5 wells, 52 weeks)**
+**Held-out test year (5 wells, 52 weeks)**
 
-| Method | Weekly MAPE | Cumulative error | P10 to P90 coverage, calibrated (target 80%) |
+| Method | Weekly MAPE | Cumulative volume error | P10–P90 coverage, calibrated (nominal 80%) |
 | --- | --- | --- | --- |
-| Arps decline | 26.7% | -18.1% | 58% |
-| Gradient boosting | 40.4% | +22.9% | 74% |
+| Arps DCA | 26.7% | -18.1% | 58% |
+| Quantile gradient boosting | 40.4% | +22.9% | 74% |
 | Temporal Fusion Transformer | 44.3% | +39.3% | 65% |
 
-**Rolling backtest:** all models were re-run from 25 quarterly forecast dates (2009 to 2015). No ML model beat Arps with statistical confidence (block-bootstrap 95% CI on the paired difference includes zero). All models beat a flat "no change" baseline.
+**Rolling-origin backtest.** All models were re-trained and re-evaluated from 25 quarterly forecast origins (Oct 2009 to Sep 2015). Neither ML model outperformed Arps DCA with statistical significance: the block-bootstrap 95% confidence interval of the paired difference in mean absolute log error includes zero for both. All three methods significantly outperformed a persistence (flat-rate) baseline.
 
-**Why ML lost:** rising water cut. On F-11 and F-12, water cut climbed toward 80 to 90% during the test year. Arps followed the decline; the ML models forecast a plateau that did not come.
+**Interpretation.** The largest ML errors coincided with rapid water breakthrough. On F-11 and F-12, water cut increased toward 80–90% during the test year. Arps DCA extrapolated the established decline, whereas both ML models projected a rate plateau that did not materialize, likely reflecting rate recoveries after earlier restarts in the training data.
 
-![Rolling backtest across 25 forecast dates](figures/03_rolling_backtest_25_dates.png)
+![Rolling-origin backtest across 25 forecast origins](figures/03_rolling_backtest_25_dates.png)
 
-## Part 2: Where ML earns its place
+## Part 2: Applications where ML adds value
 
-| Task | ML result | Classic baseline |
+All results below use the same rolling-origin, out-of-sample protocol.
+
+| Application | ML performance | Reference method |
 | --- | --- | --- |
-| Next-month (4-week) oil volume, 198 forecasts | 5.7% median error, beats Arps 68% of the time | Arps 9.0%, flat 7.6% |
-| Virtual flow meter, liquid rate | 17.0% WAPE (21.5% on an unseen well) | Choke equation 41.3% (37.1%) |
-| Water-cut forecast, 52 weeks | 7.3 points mean error | Fitted trend 11.3, flat 9.2 |
-| Year-ahead volume, Arps + GB average | 15.5% error | Arps alone 17.8% (difference not yet significant) |
+| 4-week oil volume forecast (198 forecasts) | Median absolute error 5.7%; outperforms Arps in 68% of paired forecasts | Arps DCA 9.0%; persistence 7.6% |
+| Virtual flow meter (VFM), liquid rate | WAPE 17.0%; 21.5% on a well excluded from training | Choke equation 41.3% (37.1% on the excluded well) |
+| 52-week water-cut forecast | Mean absolute error 7.3 percentage points | Logit trend 11.3; persistence 9.2 |
+| 12-month volume, Arps–GB ensemble (equal-weight average) | 15.5% mean absolute volume error | Arps DCA 17.8% (difference not statistically significant) |
 
-Also included:
+Additional components:
 
-- **Physics-constrained ML:** monotonic constraints so forecasts never rise with horizon or with faster water-cut growth.
-- **Anomaly detection:** virtual-meter residuals plus an isolation forest across 7,609 well-days.
-- **Explainability:** permutation importance, partial dependence and SHAP.
-- **MLOps simulation:** monthly retraining (Jan 2015 to Jul 2016) with a versioned model registry, data-drift checks and an accuracy alarm.
+- **Physics-informed constraints:** monotonic constraints ensure forecasts are non-increasing with horizon and with water-cut trend.
+- **Anomaly detection:** VFM residual thresholds combined with an isolation forest over 7,609 well-days of sensor data.
+- **Model interpretability:** permutation importance, partial dependence and SHAP values.
+- **MLOps simulation:** monthly retraining (Jan 2015 to Jul 2016) with a versioned model registry, input data-drift monitoring and a forecast-error alert threshold of ±20%.
 
-![Virtual flow meter](figures/05_virtual_flow_meter.png)
+![Virtual flow meter performance](figures/05_virtual_flow_meter.png)
 
-## Honest limits
+## Limitations
 
-- Five producing wells is a small sample. Differences between the year-ahead methods are not statistically significant.
-- The virtual flow meter works for **liquid** rate. Oil-rate estimates were weaker than a stale well test, because no sensor measures water cut directly.
-- With monthly well tests, a held well test (7.2% error) still beats the recalibrated ML meter (9.0%). The meter pulls ahead when tests are 3 to 6 months apart.
-- Arps b sat at its bounds on 4 of 5 wells: near 0 (exponential) on three watered-out wells, and 1.0 on two wells with a restart shortly before the forecast date.
+- **Sample size.** Five producing wells limit statistical power; differences among the 12-month forecasting methods are not significant.
+- **VFM scope.** The VFM is reliable for total liquid rate only. Oil-rate estimates underperformed a stale well test, because no sensor measures water cut directly.
+- **Well-test frequency.** With monthly well tests, holding the last test rate (7.2% WAPE) outperforms the recalibrated VFM (9.0%). The VFM becomes advantageous when test intervals extend to 3–6 months.
+- **Decline exponent.** The fitted Arps b-factor reached a bound on 4 of 5 wells: approximately 0 (exponential decline) on three wells with high water cut, and 1.0 (harmonic) on two wells with a restart less than 13 weeks before the forecast origin.
 
-## Repository layout
+## Repository structure
 
 ```
 notebooks/
-  volve_production_forecast_ML_Part1.ipynb   # data prep, Arps, gradient boosting, TFT, backtests
-  volve_production_forecast_ml_part2.ipynb   # hybrids, short horizon, water cut, VFM, anomalies, MLOps
-figures/                                      # key charts
+  volve_production_forecast_ML_Part1.ipynb   # data preparation, Arps DCA, gradient boosting, TFT, backtests
+  volve_production_forecast_ml_part2.ipynb   # hybrid models, short-horizon, water cut, VFM, anomalies, MLOps
+figures/                                      # key result figures
 requirements.txt
 ```
 
-## How to run
+## Reproducing the results
 
-1. Download `Volve production data.xlsx` from [Equinor's Volve data village](https://www.equinor.com/energy/volve-data-sharing) (free registration) and place it in a Google Drive folder.
-2. Open either notebook in Google Colab and set `PROJECT` and `SRC` in the paths cell to your folders.
-3. Run all cells. Part 1 takes about 30 minutes on CPU (the Transformer and rolling backtest are the slow parts).
+1. Download `Volve production data.xlsx` from [Equinor's Volve data sharing page](https://www.equinor.com/energy/volve-data-sharing) (free registration required) and place it in a Google Drive folder.
+2. Open either notebook in Google Colab and set `PROJECT` and `SRC` in the paths cell.
+3. Run all cells. Part 1 takes about 30 minutes on CPU; TFT training and the rolling backtest account for most of the runtime.
 
-The dataset is not included in this repository. Please obtain it from Equinor.
+The dataset is not redistributed in this repository.
 
-## Data and credit
+## Data acknowledgement
 
-Data: Equinor and the Volve license partners, released under the Equinor Open Data Licence. Thanks to Equinor for making Volve public.
+Data provided by Equinor and the Volve licence partners under the Equinor Open Data Licence.
 
 ## Author
 
