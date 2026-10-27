@@ -95,4 +95,4 @@ Data provided by Equinor and the Volve licence partners under the Equinor Open D
 ## Author
 
 Joseph Lebbie, Petroleum Engineer (MS, University of Houston) and AI/ML researcher.
-LinkedIn: [add your profile link]
+LinkedIn: [linkedin.com/in/joseph-lebbie](https://www.linkedin.com/in/joseph-lebbie/)
